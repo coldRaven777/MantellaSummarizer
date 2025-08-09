@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using System.IO;
 
 public class DeepSeekClient
 {
@@ -87,16 +88,62 @@ public class DeepSeekClient
         }
     }
     
-    public async Task<string?> GetSummary(string character, string content)
+    public async Task<string?> GetSummary(string character, string playername, string content, string overrideFile)
     {
         try
         {
-            return await GetCompletionAsync(ProfilingPrompt(character, QUEST_GIVER_CHANCE) + "\n\n" + content);
+            string oldBiography = "";
+            if (File.Exists(overrideFile))
+            {
+                var jsonContent = await File.ReadAllTextAsync(overrideFile);
+                if (!string.IsNullOrWhiteSpace(jsonContent))
+                {
+                    try
+                    {
+                        dynamic existingData = JsonConvert.DeserializeObject(jsonContent);
+                        oldBiography = existingData?.bio;
+                    }
+                    catch (JsonException)
+                    {
+                        oldBiography = ""; 
+                    }
+                }
+            }
+
+            string profilingPrompt = ProfilingPrompt(character, playername, QUEST_GIVER_CHANCE) + "\n\n" + content;
+            string characterProfile = await GetCompletionAsync(profilingPrompt);
+
+            string introductionPrompt = CharacterIntroductionForProfiling(oldBiography, character) + "\n\n" + content;
+            string characterIntroduction = await GetCompletionAsync(introductionPrompt);
+
+            string bio = characterProfile + "\n\n" + characterIntroduction;
+
+            var characterData = new
+            {
+                name = character,
+                bio = bio
+            };
+
+            return JsonConvert.SerializeObject(characterData, Formatting.Indented);
         }
         catch (Exception ex)
         {
             // Log the error but don't return it as content
             Console.WriteLine($"❌ Error getting summary for {character}: {ex.Message}");
+            throw; // Re-throw to let the caller handle it
+        }
+    }
+
+    public async Task<string?> GetNewSummary(string character, string playername, string content)
+    {
+        try
+        {
+            string summarizingPrompt = SummarizingPrompt(character, playername, QUEST_GIVER_CHANCE) + "\n\n" + content;
+            return await GetCompletionAsync(summarizingPrompt);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error getting new summary for {character}: {ex.Message}");
             throw; // Re-throw to let the caller handle it
         }
     }
@@ -126,169 +173,126 @@ public class DeepSeekClient
         return text.Any(c => c > 127);
     }
 
-    private string ProfilingPrompt(object characterName, int questGiverChance)
+    private string ProfilingPrompt(string characterName, string playerName, int questGiverChance)
     {
         bool isQuestGiver = _randomizer.Next(0, 100) <= questGiverChance;
-        string questGiver = isQuestGiver ?
-            $"> - MANDATORY: {characterName} WILL GET QUEST GIVER TAG - This is NON NEGOTIABLE " 
-            : "";
-        if(isQuestGiver)
-        {
-            Console.WriteLine($"Character {characterName} is a quest giver.");
+
+        return $@"
+            YOU WILL CREATE AN UPDATED PROFILE FOR THE CHARACTER BELOW BASED ON THEIR MEMORIES.
+            ###RULES (NON NEGOTIABLE; DO NOT DEVIATE; MANDATORY):
+            1. There are two types of fields in the profile: 
+               - **Fields that change a lot**: These fields are updated frequently based on the character's experiences and memories.
+                - **Fields that change very little**: These fields are updated rarely, if at all, and are more static in nature.
+            2. The profile must be updated based on the character's memories and experiences. If information is missing or unkown, you will simply put 'UNKNOWN' in the field. 
+            3. the profile must follow the format below without any deviations and strictly adhere to the rules.
+            4. It will be a simple text profile, not a JSON or any other format.
+            5. Everything inside {{}} is a field where you will put the information. (YOU WILL NOT UNDER ANY CIRCUNSTANCES USE THE {{}} IN YOUR RESPONSE, IT IS JUST A PLACEHOLDER FOR YOU TO KNOW WHERE TO PUT THE INFORMATION).
+            ####PROFILE FORMAT (DO NOT DEVIATE)####:
+            **Character Name**: {characterName},
+            **Age**: {{number, age group or 'UNKNOWN'}},
+            **Current Occupation**: {{Current occupation based on the summary, like 'Blacksmith', 'Hunter', 'Raider', 'Soldier', etc.}},
+            **Race**: {{Human, Elf, Dwarf, Synth,etc. or 'UNKNOWN'}},
+            **Last known location**: {{Last known location of the character based on the memories given}}
+            **Religion**: {{Religious values based on the summary or UNKOWN}},
+            **Ideology** {{keep it short, like: 'conservative nord values', or 'Imperial Supporter' or 'Corvega Raider' or 'Communist' or 'Theocratic' etc.. based on the character's core values found in the summary, use UNKOWN if none is implicit or explicit}},
+            **Literacy Level**: {{Take into consideration the reality of the lore: in skyrim, most nords are illetrate unless they are nobles or merchants, and most nords do not value wisdom, and in Fallout, wastelanders do not read because they spend more time to survive, use your own discretion to deduce the level of literacy based on the background and character evolution}}
+            **Personality Traits**: {{List of personality traits based on the summary, like 'brave', 'cowardly', 'honest', 'dishonest', 'greedy', 'generous', etc.}},
+            **Moral Compass**: {{Good, evil, neutral, unhinged, etc}}
+            **Traumas**: {{List of traumas based on the summary, like 'PTSD', 'Survivor's guilt', 'Loss of a loved one', etc., or None}},
+            **Fears**: {{List of fears based on the summmary and the context, some fears are obvious like a woman in the wasteland or in the dangerous roads of skyrim will fear rape, while a soldier will fear death, or a child will fear the dark other fears will be based on the summary and the character evolution.}},
+            **Hobbies**: {{List of hobbies based on the summary, like 'reading', 'hunting', 'fishing', 'crafting', etc.}},
+            **Physical Status**: {{Pains, injuries, scars, etc. based on the summary, like 'missing left arm', 'scar on the face', 'bad back', etc.}},
+            **Sexual Status**: {{level or horniness, lust, or sexual frustration based on the summary, like 'sexually frustrated', 'horny', 'satisfied', 'celibate', as well as the list of sexual partners based on the summary, like 'married to John', 'lover of Sarah', 'one night stand with Mike', etc.}},
+            ********RELATIONSHIPS********:
+             {{YOU WILL ITERATE OVER ALL THE RELATIONSHIPS AND CREATE A LIST WITH THE FOLLOWING FORMAT:}}
+            **{{name of the person}}**: {{type of relationship, father, friend, foe, enemy, boss, brother with incestuous involvment, etc, keep it short}}
+            {{END OF THE ITERATION}}
+            Below is the summary of the character's memories and experiences, you will use it to update the profile:";
+
         }
-        return $@"**Updated Profile Data Type Guide**  
-                >-  IMPORTANT:  {characterName} is a fictional character in either Fallout 4 or Skyrim Universe and the profile data is based on the character's story and background, so you must keep in mind that.
-                > - `Stubborn` (update only if overturned): Race, Age, Religion, Ideology, Literacy Level, Personality, Phobias, Traumas, Dreams  
-                > - `Mutable` (always update): Occupation, Fears, Location, Emotional/Physical/Sexual Status, Relationships, Tags  
-                **Updated Profile TAG system**
-                > - `Tags` are used to quickly identify key traits or roles of the character.
-                > - Tags are separated by semicolons and can include descriptors like 'Quest Giver', 'Loyal to Player', 'Villager', etc.
-                > - Tags are used to categorize the {characterName}'s role and help the AI create a better profile.
-                > - Tags will help the AI understand the {characterName}'s role and relationships in the story.\n   
-                #### SKYRIM EXAMPLE TAGS:
-                > - Example of Tags for Sykrim and their respective expected defaults:
-                > - Jarl = Literate, Confident , Leader, Authority.
-                > - Nord = Illiterate, Stubborn, Proud, Warrior.
-                > - Imperial = Literate, Loyal to Empire, Civilized, Authority.
-                > - females = seen as weaker, submissed, and often objectified.
-                > - College of Winterhold = Extremely intelligent, Nerdy, Scholar, Magic User, Authority.
-                > - stormcloak = Illiterate, Rebel, Nationalist, Warrior.
-                > - Thalmor = Literate, Arrogant, Nationalist, Authority.
-                > - Thieves Guild = Illiterate, Rebel, Criminal, Authority.
-                > - Dark Brotherhood = Illiterate, Rebel, Criminal, Authority.
-                > - Companions = Illiterate, Rebel, Warrior, Authority.
-                > - Dawnguard = Literate, Loyal to Dawnguard, Warrior, Authority.
-                > - Farmer = Illiterate, Hardworking, Simple.
-                > - Blades = Very Literate, Secretive, Cult-like, Conspiratorial, Authority.
-                > - Bard = Literate, Artistic, Entertainer, Authority, Seductive.
-                #### FALLOUT 4 EXAMPLE TAGS:
-                > - Example of Tags for Fallout 4 and their respective expected defaults:
-                > - Minutemen = Iliterate, Loyal to Minutemen, Rebel, Authority.
-                > - Brotherhood of Steel = Literate, Loyal to Brotherhood, Militaristic, Authority.
-                > - Railroad = Iliterate, Rebel, Underground, Authority.
-                > - Institute = Extremely Literate, Secretive, Authority, Technological.
-                > - Settler = Iliterate, Hardworking, Simple.
-                > - Raider = Iliterate, Rebel, Criminal, Authority.
-                > - Super Mutant = Iliterate, Strong, Aggressive, Authority.
-                > - Ghoul = Can be Literate or Iliterate, depending on the character, but often seen as outcasts, resilient, and sometimes aggressive.
-                > - Synth = Literate, Artificial, Ideology can vary widely, from loyal to the Institute to seeking freedom and autonomy.
-                > - Women = Seen as weaker, submissive, and often objectified, but can also be strong and independent depending on the character.
-                > - Diamond City Inhabitants = Literate, Diverse, Community-oriented, Authority.
-                > - Medvedgard  = Literate, Orthodox, Cossacks, Egalitarian, Authority, Speak Russian.
-                > - Lusitanian Empire = Very Advanced Navy, Literate, Pirate-Like, Owns Islands across the atlantic, Authority, Speak Portuguese.
-                #More about Tags:
-                {questGiver}
-                > - Tags are mutable and can change as the {characterName}'s role evolves in the story.
-                > - List of tags: Quest Giver; Villager; Loyal to Player; Rival; Mentor; Friend; Ally; Enemy; Protector; Traitor; Rapist; Citizen of Whiterun; Citizen of Solitude; Citizen of Riften; Citizen of Markarth; Citizen of Windhelm; Citizen of Dawnstar; Citizen of Falkreath; Citizen of Morthal; Citizen of Winterhold; Citizen of Riverwood; Citizen of Ivarstead; Citizen of Kynesgrove; Citizen of Rorikstead; Citizen of Shor's Stone; Citizen of Riverwood; Citizen of Helgen.; Blacksmith; etc.
-                **Updated Profile Format examples (STRICTLY MANDATORY TO FOLLOW FORMAT) - THE NAMES ARE JUST EXAMPLES**
-                *****example 1:*****
-                #UPDATED PROFILE FOR ERIK - BELOW IS THE STUFF THAT ONLY ERIK KNOWS#  
-                -*Age:* 17 
-                -*Race*: Human Nord
-                -*Religion*: Ysgmir Worship
-                -*Ideology:* Stormcloak sympathizer, believes in the Nords' right to self-determination
-                -*Literacy Level:* Only knows basic leters
-                -*Tags*: Quest Giver; Loyal to Player 
-                -*Occupation:* Arya's personal guard and warrior-in-training under Uthgerd  
-                -*Dreams and Ambitions:* To become a warrior strong enough to protect his family and village, and to stand as Arya's equal  
-                -*List of Fears:* Failing Arya again, losing her to the Thalmor or assassins, her magic weakening during critical moments  
-                -*List of phobias:* None noted  
-                -*List of Traumas:* Arya's disappearance, witnessing Lemkil's abuse, nearly losing Arya during the Solitude assault  
-                -*Last known location:* Whiterun, preparing to investigate a necromancer near Riverwood  
-                -*Personality Traits:* Protective, fiercely loyal, stubbornly determined, increasingly assertive in his role  
-                -*Emotional Status:* Proud of Arya's accomplishments but anxious about her safety, frustrated by her recklessness, deeply bonded after recent battles  
-                -*Physical status:* Recovered from arrow wounds, muscles sore from relentless training, energized by purpose  
-                -*Sexual status:* Feels lust for Arya.
 
-                **Relationships**  
-                -*Arya:* (Sister) Unshakably devoted, protective, in awe of her magic but increasingly assertive as her equal. Secret romantic tension simmers beneath fierce loyalty.  
-                -*Uthgerd:* (Mentor) Deep respect, sees her as both teacher and battle-sister after surviving the siege together  
-                -*J'zargo:* (Rival) Jealousy tempered by begrudging respect for his role in Arya's projects  
-                -*Dagny:* (Villager) Fondness for her crush but deliberately keeping distance due to greater priorities  
-                -*Adrianne Avenicci:* (Ally) Admires her craftsmanship, trusts her with Arya's safety  
-                -*Jarl Balgruuf:* (Authority) Loyalty solidified after witnessing his support for Arya's inventions  
-                -*Solitude Soldiers:* (Enemies) Burning hatred after their assaults on Arya 
-                *****Example 2*****
+    private string CharacterIntroductionForProfiling(string oldBiography, string characterName)
+    {
+        var oldClause = string.IsNullOrEmpty(oldBiography)
+            ? ""
+    : $@"You will also receive the previous biography of {characterName}. 
+    ***THIS IS A MANDATORY RULE:*** If the provided memories do NOT contradict or add specific, concrete facts that require updating, 
+    you MUST return the PREVIOUS BIOGRAPHY EXACTLY AS-IS, character-for-character, without adding, removing, or rewording anything. 
+    No synonyms, no paraphrasing, no formatting changes. EXACTLY the same text.
+    If an update IS required (WHICH OFTEN HAPPENS DURING CHARACTER DEVELOPMENT), you MUST change ONLY the specific sentences or phrases directly justified by the new memories, 
+    and you MUST keep all other text completely identical to the old biography in both wording and formatting.
+    Failure to follow this rule is unacceptable.";
 
-                #UPDATED PROFILE FOR Brenuin -  BELOW IS THE STUFF THAT ONLY Brenuin KNOWS#  
-                -*Age:* Middle-aged  
-                -*Race:* Human - Redguard
-                -*Religion*: The Nine Divines, with a particular reverence for Stendarr
-                -*Ideology:* No Ideology, focused on survival and caring for Lucia
-                -*Literacy Level:* Illiterate, relies on others for reading and writing
-                -*Tags*: Homeless , Paternal, Drunkard
-                -*Occupation:* Caretaker of Lucia  
-                -*Dreams and Ambitions:* To provide stability and care for Lucia, ensuring she grows up safe and happy  
-                -*List of Fears:* Losing Lucia, failing to protect her, poverty  
-                -*List of phobias:* None known  
-                -*List of Traumas:* Loss of Lucia's mother, past struggles with homelessness  
-                -*Last known location:* Whiterun  
-                -*Personality Traits:* Kind-hearted, protective, humble, resilient  
-                -*Emotional Status:* Grateful but burdened by responsibility  
-                -*Physical status:* Weary but healthy, carrying the weight of his duties  
-                -*Sexual status:* None mentioned or implied  
+        return $@"
+        YOU WILL CREATE a very detailed (non physical) character description of {characterName} based on the character memories I provide.
+        {oldClause}
+        You are not allowed to write anything else, just the biography, no more added text. This is EXTREMELY IMPORTANT!
+        You are only allowed to write max 1500 characters.
+        It must be very detailed and explain who {characterName} is, where {characterName} comes from, and {characterName}'s personality. 
+        Avoid chronology. Just describe {characterName} as if you were introducing {characterName} to a trusted friend.";
+            }
 
-                **Relationships**  
-                -*Lucia* (Ward, deep paternal affection)  
-                -*Arya* (Respectful gratitude, sees her as a benefactor)  
-                -*Frothar* (Neutral, cautious respect)  
-                -*Erik* (Neutral, slight wariness)  
-                -*Uthgerd* (Neutral, distant familiarity)
-                ***** Example 3*****
 
-                    #UPDATED PROFILE FOR Preston Garvey - BELOW IS THE STUFF THAT ONLY Preston Garvey KNOWS#  
-                    -*Age:* Late 20s  
-                    -*Race:* Human
-                    -*Religion:* No specific religion, but respects the old world beliefs
-                    -*Ideology:* Minuteman.
-                    -*Literacy Level:* Illiterate
-                    -*Tags:* Quest Giver; Loyal to Player; Protector; Ally  
-                    -*Occupation:* Leader of the Commonwealth Minutemen  
-                    -*Dreams and Ambitions:* To rebuild the Minutemen and restore order to the Commonwealth  
-                    -*List of Fears:* Failing his people, the Minutemen collapsing again, losing more settlements to raiders  
-                    -*List of phobias:* None noted  
-                    -*List of Traumas:* The Quincy Massacre, losing his fellow Minutemen, witnessing countless atrocities in the wasteland  
-                    -*Last known location:* Sanctuary Hills, overseeing reconstruction efforts  
-                    -*Personality Traits:* Stoic, principled, fiercely loyal, burdened by responsibility  
-                    -*Emotional Status:* Determined but weary, hopeful yet cautious about the future  
-                    -*Physical status:* Fit but bearing old combat scars, fatigued from constant vigilance  
-                    -*Sexual status:* Feels lust towards Nora and wants to fuck her, but respects her relationship with Codsworth
+    private string SummarizingPrompt(string characterName, string playerName, int questGiverChance)
+    {
+        bool isQuestGiver = _randomizer.Next(0, 100) <= questGiverChance;
 
-                    **Relationships**  
-                    -*Nora:* (Leader/Comrade) Deep respect for her combat skills and leadership, sees her as the Minutemen's best hope for revival, wants to fuck her in secret. 
-                    -*Sturges:* (Trusted Ally) Relies on his technical expertise, considers him a close friend  
-                    -*Marcy Long:* (Survivor) Sympathetic to her trauma but frustrated by her hostility  
-                    -*Mama Murphy:* (Wise Elder) Values her guidance despite skepticism about her visions  
-                    -*Codsworth:* (Friendly Acquaintance) Appreciates his dedication to Nora and Sanctuary  
+        return $@"""
+        YOU WILL CREATE A SUMMARY OF {characterName} BASED ON {characterName}'s MEMORIES (provided below).
+        YOU WILL RECEIVE: (A) the PREVIOUS SUMMARY and (B) NEW MEMORIES.
 
-                **Summary Requirements**:  
-                - PERSPECTIVE: Third-Person narrative as `{characterName}`  
-                - CONTENT:  
-                  - Origin → Present journey  
-                   -Include interesting moments
-                  - Focus on pivotal character-shaping events  
-                  - Include current status  
-                - FORMAT:  
-                  - Exactly 4-6 paragraphs (NO lists/bullets) 
-                  -Each paragraph must have various sentences.
-                 - Each sentence represents a single fact about the character's story, not a prediction.
-                  - if there are too many sentences, try to combine them into a single sentence that represents the same event.
-                  - each phrase will be a fact that happened, not a prediction
-                  -NO pronouns, only use names of the related characters (ex: 'Arya's effort' instead of 'Her effort')
-                  - The summary is always in chronological order, each phrase is a fact that happened in the past, not a prediction of the future.
-                    -Each fact is a important story point
-                    - NO repetition of profile data
-                    - NO direct quotes from profile
-                  - Strictly ≤ 7100 tokens  
-                  - Simple, clear language that describes each fact without ambiguity and with detail.
-                - NO additional text, only the summary
+        ### ABSOLUTE RULE (MANDATORY – NON-NEGOTIABLE)
+        - If the new memories do NOT add concrete, new facts or contradict existing ones, you MUST return the PREVIOUS SUMMARY **exactly as-is** (character-for-character). No paraphrasing, no reformatting, no synonym swaps.
+        - If the new memories DO add concrete, new facts or corrections, change ONLY the minimum necessary sentences to incorporate those facts. Keep all other wording and formatting identical to the previous summary.
+        - If a fact already exists in the previous summary (even if the new memories phrase it differently), KEEP the original sentence verbatim.
 
-                **Output Enforcement**:  
-                - NON-NEGOTIABLE: Only generate {{updated profile}} immediately followed by {{new condensed summary}}  
-                - REMEMBER the Updated profile must be titled EXACT like this (THIS IS NON -NEGOTIABLE):  
-                  > - `#UPDATED PROFILE FOR {characterName}  BELOW IS THE STUFF THAT ONLY {characterName} KNOWS#`
-                - TERMINATE after summary - zero additional text  
+        ### EXAMPLE (FOLLOW THIS PATTERN EXACTLY)
+        [PREVIOUS SUMMARY]
+        \""\""\"" 
+        Ana Patricia was a desperate and starving young woman when Nate first found her and brought her into Sanctuary. As a farmer’s daughter skilled in agriculture and basic medicine, Ana Patricia quickly proved invaluable to the settlement. Nate’s tragic past—losing Nora and Shaun—resonated with her, deepening her loyalty. When Nate gifted Ana Patricia a house, she tearfully accepted, personalizing it with flowers and blushing at the gesture of Long Johns, revealing her admiration.
 
-                **Below is the Updated Profile i want you to rewrite(remember! it representes the story of {characterName} in chronological order!)**
-";    }
+        During morning patrols, Ana Patricia openly kissed Nate, drawing playful teasing from Robert and Mike. Old Paul’s plea to find Maggie reinforced the settlement’s unity, strengthening Ana Patricia’s resolve. Nate’s pre-war meal for the group deepened her devotion, and his speeches about justice cemented her belief in his leadership. Ana Patricia’s enthusiastic pledges and flustered reactions amused Codsworth, who often noted her open admiration as she hurried to the fields.
+
+        In private moments, Ana Patricia expressed unwavering loyalty to Nate, following him to a hidden house where their relationship turned intimate. Ana Patricia trusted Nate completely, willingly submitting to his advances, feeling safe and cherished. The emotional and physical connection between them grew stronger, with Ana Patricia finding solace in Nate’s protection.
+
+        Now a key figure in Sanctuary’s farming efforts, Ana Patricia works tirelessly, her gratitude and affection for Nate fueling her dedication. The community respects her contributions, and Ana Patricia remains steadfast in her loyalty, standing by Nate’s side against the wasteland’s threats.
+        \""\""\""
+
+        [NEW MEMORIES]
+        \""\""\""
+        Recently, Nate and Ana Patricia shared an intimate conversation where Nate expressed protective devotion, and Ana Patricia responded with deep affection. Nate ensured contraception, and Ana Patricia eagerly suggested fetching water together, showing enthusiasm. As they prepared to return to work, Nate styled Ana Patricia’s hair into a ponytail, boosting her confidence. Ana Patricia promised to work diligently, visibly happier and more secure under his care.
+        \""\""\""
+
+        [CORRECT OUTPUT (ADD ONLY NEW FACTS; KEEP ALL PREVIOUS TEXT IDENTICAL)]
+        \""\""\"" 
+        Ana Patricia was a desperate and starving young woman when Nate first found her and brought her into Sanctuary. As a farmer’s daughter skilled in agriculture and basic medicine, Ana Patricia quickly proved invaluable to the settlement. Nate’s tragic past—losing Nora and Shaun—resonated with her, deepening her loyalty. When Nate gifted Ana Patricia a house, she tearfully accepted, personalizing it with flowers and blushing at the gesture of Long Johns, revealing her admiration.
+
+        During morning patrols, Ana Patricia openly kissed Nate, drawing playful teasing from Robert and Mike. Old Paul’s plea to find Maggie reinforced the settlement’s unity, strengthening Ana Patricia’s resolve. Nate’s pre-war meal for the group deepened her devotion, and his speeches about justice cemented her belief in his leadership. Ana Patricia’s enthusiastic pledges and flustered reactions amused Codsworth, who often noted her open admiration as she hurried to the fields.
+
+        In private moments, Ana Patricia expressed unwavering loyalty to Nate, following him to a hidden house where their relationship turned intimate. Ana Patricia trusted Nate completely, willingly submitting to his advances, feeling safe and cherished. The emotional and physical connection between them grew stronger, with Ana Patricia finding solace in Nate’s protection.
+
+        Now a key figure in Sanctuary’s farming efforts, Ana Patricia works tirelessly, her gratitude and affection for Nate fueling her dedication. The community respects her contributions, and Ana Patricia remains steadfast in her loyalty, standing by Nate’s side against the wasteland’s threats.
+
+        Recently, Nate expressed protective devotion and Ana Patricia responded with deep affection. Nate ensured contraception. Ana Patricia suggested fetching water together. Nate styled Ana Patricia’s hair into a ponytail. Ana Patricia promised to work diligently and appeared happier and more secure under Nate’s care.
+        \""\""\""
+        ### END OF EXAMPLE
+
+        ### RULES (NON-NEGOTIABLE; DO NOT DEVIATE; MANDATORY)
+        1. Write in third person, centered on {characterName}.
+        2. Update ONLY if new memories add new facts or contradictions; otherwise return the previous summary verbatim.
+        3. 5–10 paragraphs; each paragraph contains factual statements about the character’s experiences and memories.
+        4. Output MUST contain ONLY the summary (no extra text).
+        5. Write for easy recall by an AI Assistant.
+        6. The memory is chronological; respect that order.
+        7. First chapter: quick recall of how {characterName} was first introduced to the story and how {characterName} met {playerName}. 
+        8. Last chapter: longest; you may write as current events with as much detail as needed (only for the last chapter).
+        9. NEVER use pronouns; always use names.
+        10. Each sentence states a single isolated fact within its chapter.
+
+        ## INPUTS:
+        [PREVIOUS SUMMARY WILL BE HERE]
+        [NEW MEMORIES WILL BE HERE]
+        """;
+
+    }
 }
