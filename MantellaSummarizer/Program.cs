@@ -523,8 +523,17 @@ class Program
     /// <returns>Clean character name (ex: "Anya Korolova")</returns>
     private static string ExtractCleanCharacterName(string characterName)
     {
-        var parts = characterName.Split(CHARACTER_NAME_SEPARATOR);
-        return parts.Length > 0 ? parts[0].Trim() : characterName;
+        int lastHyphenIndex = characterName.LastIndexOf(CHARACTER_NAME_SEPARATOR, StringComparison.Ordinal);
+        
+        // If a hyphen is found and it's not the first character
+        if (lastHyphenIndex > 0)
+        {
+            // Return the part of the string before the last hyphen
+            return characterName.Substring(0, lastHyphenIndex).Trim();
+        }
+        
+        // If no hyphen is found, return the original name
+        return characterName;
     }
 
     /// <summary>
