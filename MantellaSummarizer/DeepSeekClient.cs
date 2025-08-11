@@ -175,124 +175,80 @@ public class DeepSeekClient
 
     private string ProfilingPrompt(string characterName, string playerName, int questGiverChance)
     {
-        bool isQuestGiver = _randomizer.Next(0, 100) <= questGiverChance;
+        return $"""
+        Update {characterName}'s profile using their memories. Follow EXACTLY:
+        **Rules**:
+        - Two field types: 
+          • Frequent changes: Update often (e.g., location, occupation).
+          • Static fields: Rarely change (e.g., race, core ideology).
+        - Use "UNKNOWN" for missing info.
+        - Only named individuals in Relationships (no groups/titles).
+        - Output PLAIN TEXT. No JSON/formatting.
+        - NEVER use double curly braces in output.
 
-        return $@"
-            YOU WILL CREATE AN UPDATED PROFILE FOR THE CHARACTER BELOW BASED ON THEIR MEMORIES.
-            ###RULES (NON NEGOTIABLE; DO NOT DEVIATE; MANDATORY):
-            1. There are two types of fields in the profile: 
-               - **Fields that change a lot**: These fields are updated frequently based on the character's experiences and memories.
-                - **Fields that change very little**: These fields are updated rarely, if at all, and are more static in nature.
-            2. The profile must be updated based on the character's memories and experiences. If information is missing or unkown, you will simply put 'UNKNOWN' in the field. 
-            3. the profile must follow the format below without any deviations and strictly adhere to the rules.
-            4. It will be a simple text profile, not a JSON or any other format.
-            5. Everything inside {{}} is a field where you will put the information. (YOU WILL NOT UNDER ANY CIRCUNSTANCES USE THE {{}} IN YOUR RESPONSE, IT IS JUST A PLACEHOLDER FOR YOU TO KNOW WHERE TO PUT THE INFORMATION).
-            ####PROFILE FORMAT (DO NOT DEVIATE)####:
-            **Character Name**: {characterName},
-            **Age**: {{number, age group or 'UNKNOWN'}},
-            **Current Occupation**: {{Current occupation based on the summary, like 'Blacksmith', 'Hunter', 'Raider', 'Soldier', etc.}},
-            **Race**: {{Human, Elf, Dwarf, Synth,etc. or 'UNKNOWN'}},
-            **Last known location**: {{Last known location of the character based on the memories given}}
-            **Religion**: {{Religious values based on the summary or UNKOWN}},
-            **Ideology** {{keep it short, like: 'conservative nord values', or 'Imperial Supporter' or 'Corvega Raider' or 'Communist' or 'Theocratic' etc.. based on the character's core values found in the summary, use UNKOWN if none is implicit or explicit}},
-            **Literacy Level**: {{Take into consideration the reality of the lore: in skyrim, most nords are illetrate unless they are nobles or merchants, and most nords do not value wisdom, and in Fallout, wastelanders do not read because they spend more time to survive, use your own discretion to deduce the level of literacy based on the background and character evolution}}
-            **Personality Traits**: {{List of personality traits based on the summary, like 'brave', 'cowardly', 'honest', 'dishonest', 'greedy', 'generous', etc.}},
-            **Moral Compass**: {{Good, evil, neutral, unhinged, etc}}
-            **Traumas**: {{List of traumas based on the summary, like 'PTSD', 'Survivor's guilt', 'Loss of a loved one', etc., or None}},
-            **Fears**: {{List of fears based on the summmary and the context, some fears are obvious like a woman in the wasteland or in the dangerous roads of skyrim will fear rape, while a soldier will fear death, or a child will fear the dark other fears will be based on the summary and the character evolution.}},
-            **Hobbies**: {{List of hobbies based on the summary, like 'reading', 'hunting', 'fishing', 'crafting', etc.}},
-            **Physical Status**: {{Pains, injuries, scars, etc. based on the summary, like 'missing left arm', 'scar on the face', 'bad back', etc.}},
-            **Sexual Status**: {{level or horniness, lust, or sexual frustration based on the summary, like 'sexually frustrated', 'horny', 'satisfied', 'celibate', as well as the list of sexual partners based on the summary, like 'married to John', 'lover of Sarah', 'one night stand with Mike', etc.}},
-            ********RELATIONSHIPS********:
-             {{YOU WILL ITERATE OVER ALL THE RELATIONSHIPS AND CREATE A LIST WITH THE FOLLOWING FORMAT:}}
-            **{{name of the person}}**: {{type of relationship, father, friend, foe, enemy, boss, brother with incestuous involvment, etc, keep it short}}
-            {{END OF THE ITERATION}}
-            Below is the summary of the character's memories and experiences, you will use it to update the profile:";
+        **Profile Format**:
+        Character Name: {characterName}
+        Age: [number/age group/UNKNOWN]
+        Current Occupation: [job title]
+        Race: [race/UNKNOWN]
+        Last known location: [location]
+        Religion: [beliefs/UNKNOWN]
+        Ideology: [brief phrase/UNKNOWN]
+        Literacy Level: [lore-appropriate deduction]
+        Personality Traits: [comma-separated list]
+        Moral Compass: [Good/Evil/Neutral/etc]
+        Traumas: [list/None]
+        Fears: [list]
+        Hobbies: [list]
+        Physical Status: [injuries/scars]
+        Sexual Status: [libido + partners list]
+        ********RELATIONSHIPS********:
+        **[Person1]**: [relationship type]
+        **[Person2]**: [relationship type]
 
-        }
+        Use memories below:
+        """;
+    }
 
     private string CharacterIntroductionForProfiling(string oldBiography, string characterName)
     {
-        var oldClause = string.IsNullOrEmpty(oldBiography)
-            ? ""
-    : $@"You will also receive the previous biography of {characterName}. 
-    ***THIS IS A MANDATORY RULE:*** If the provided memories do NOT contradict or add specific, concrete facts that require updating, 
-    you MUST return the PREVIOUS BIOGRAPHY EXACTLY AS-IS, character-for-character, without adding, removing, or rewording anything. 
-    No synonyms, no paraphrasing, no formatting changes. EXACTLY the same text.
-    If an update IS required (WHICH OFTEN HAPPENS DURING CHARACTER DEVELOPMENT), you MUST change ONLY the specific sentences or phrases directly justified by the new memories, 
-    and you MUST keep all other text completely identical to the old biography in both wording and formatting.
-    Failure to follow this rule is unacceptable.";
-
-        return $@"
-        YOU WILL CREATE a very detailed (non physical) character description of {characterName} based on the character memories I provide.
-        {oldClause}
-        You are not allowed to write anything else, just the biography, no more added text. This is EXTREMELY IMPORTANT!
-        You are only allowed to write max 1500 characters.
-        It must be very detailed and explain who {characterName} is, where {characterName} comes from, and {characterName}'s personality. 
-        Avoid chronology. Just describe {characterName} as if you were introducing {characterName} to a trusted friend.";
-            }
+        string oldClause = string.IsNullOrEmpty(oldBiography) ? "" :
+            $"""If memories DON'T contradict/add concrete facts, RETURN PREVIOUS BIOGRAPHY *EXACTLY* (no changes) Only update SPECIFIC sentences when new facts justify it. Keep formatting identical.""";
+    
+    return $"""
+        Create {characterName}'s biography using memories. {oldClause}
+        **Rules**:
+        - Max 1500 characters
+        - Third-person introduction (like telling a friend)
+        - Cover: origins, personality, motivations
+        - NO chronology/physical description
+        - Output ONLY the biography text nothing else
+        """;
+    }
 
 
     private string SummarizingPrompt(string characterName, string playerName, int questGiverChance)
     {
-        bool isQuestGiver = _randomizer.Next(0, 100) <= questGiverChance;
+        return $"""
+        Update {characterName}'s summary using new memories and previous summary.
+        **Golden Rules**:
+        1. If new memories add NO facts/contradictions → RETURN PREVIOUS SUMMARY *EXACTLY*.
+        2. If updating → Change ONLY sentences needing update. Keep 90%+ text identical.
+        3. Output ONLY the summary (no explanations).
 
-        return $@"""
-        YOU WILL CREATE A SUMMARY OF {characterName} BASED ON {characterName}'s MEMORIES (provided below).
-        YOU WILL RECEIVE: (A) the PREVIOUS SUMMARY and (B) NEW MEMORIES.
+        **Structure**:
+        - 5-10 chronological paragraphs
+        - First paragraph: How {characterName} met {playerName} and entered the story.
+        - Last paragraph: Recent events (most detailed and can be longer)
+        - Always use FULL names (no pronouns)
+        - 1 fact per sentence
 
-        ### ABSOLUTE RULE (MANDATORY – NON-NEGOTIABLE)
-        - If the new memories do NOT add concrete, new facts or contradict existing ones, you MUST return the PREVIOUS SUMMARY **exactly as-is** (character-for-character). No paraphrasing, no reformatting, no synonym swaps.
-        - If the new memories DO add concrete, new facts or corrections, change ONLY the minimum necessary sentences to incorporate those facts. Keep all other wording and formatting identical to the previous summary.
-        - If a fact already exists in the previous summary (even if the new memories phrase it differently), KEEP the original sentence verbatim.
+        **Example Update Logic**:  
+        Previous: "Ana farmed crops."  
+        New Memory adds the following new fact: "Ana repaired water pump."  
+        Output: "Ana farmed crops. Ana repaired water pump."
 
-        ### EXAMPLE (FOLLOW THIS PATTERN EXACTLY)
-        [PREVIOUS SUMMARY]
-        \""\""\"" 
-        Ana Patricia was a desperate and starving young woman when Nate first found her and brought her into Sanctuary. As a farmer’s daughter skilled in agriculture and basic medicine, Ana Patricia quickly proved invaluable to the settlement. Nate’s tragic past—losing Nora and Shaun—resonated with her, deepening her loyalty. When Nate gifted Ana Patricia a house, she tearfully accepted, personalizing it with flowers and blushing at the gesture of Long Johns, revealing her admiration.
-
-        During morning patrols, Ana Patricia openly kissed Nate, drawing playful teasing from Robert and Mike. Old Paul’s plea to find Maggie reinforced the settlement’s unity, strengthening Ana Patricia’s resolve. Nate’s pre-war meal for the group deepened her devotion, and his speeches about justice cemented her belief in his leadership. Ana Patricia’s enthusiastic pledges and flustered reactions amused Codsworth, who often noted her open admiration as she hurried to the fields.
-
-        In private moments, Ana Patricia expressed unwavering loyalty to Nate, following him to a hidden house where their relationship turned intimate. Ana Patricia trusted Nate completely, willingly submitting to his advances, feeling safe and cherished. The emotional and physical connection between them grew stronger, with Ana Patricia finding solace in Nate’s protection.
-
-        Now a key figure in Sanctuary’s farming efforts, Ana Patricia works tirelessly, her gratitude and affection for Nate fueling her dedication. The community respects her contributions, and Ana Patricia remains steadfast in her loyalty, standing by Nate’s side against the wasteland’s threats.
-        \""\""\""
-
-        [NEW MEMORIES]
-        \""\""\""
-        Recently, Nate and Ana Patricia shared an intimate conversation where Nate expressed protective devotion, and Ana Patricia responded with deep affection. Nate ensured contraception, and Ana Patricia eagerly suggested fetching water together, showing enthusiasm. As they prepared to return to work, Nate styled Ana Patricia’s hair into a ponytail, boosting her confidence. Ana Patricia promised to work diligently, visibly happier and more secure under his care.
-        \""\""\""
-
-        [CORRECT OUTPUT (ADD ONLY NEW FACTS; KEEP ALL PREVIOUS TEXT IDENTICAL)]
-        \""\""\"" 
-        Ana Patricia was a desperate and starving young woman when Nate first found her and brought her into Sanctuary. As a farmer’s daughter skilled in agriculture and basic medicine, Ana Patricia quickly proved invaluable to the settlement. Nate’s tragic past—losing Nora and Shaun—resonated with her, deepening her loyalty. When Nate gifted Ana Patricia a house, she tearfully accepted, personalizing it with flowers and blushing at the gesture of Long Johns, revealing her admiration.
-
-        During morning patrols, Ana Patricia openly kissed Nate, drawing playful teasing from Robert and Mike. Old Paul’s plea to find Maggie reinforced the settlement’s unity, strengthening Ana Patricia’s resolve. Nate’s pre-war meal for the group deepened her devotion, and his speeches about justice cemented her belief in his leadership. Ana Patricia’s enthusiastic pledges and flustered reactions amused Codsworth, who often noted her open admiration as she hurried to the fields.
-
-        In private moments, Ana Patricia expressed unwavering loyalty to Nate, following him to a hidden house where their relationship turned intimate. Ana Patricia trusted Nate completely, willingly submitting to his advances, feeling safe and cherished. The emotional and physical connection between them grew stronger, with Ana Patricia finding solace in Nate’s protection.
-
-        Now a key figure in Sanctuary’s farming efforts, Ana Patricia works tirelessly, her gratitude and affection for Nate fueling her dedication. The community respects her contributions, and Ana Patricia remains steadfast in her loyalty, standing by Nate’s side against the wasteland’s threats.
-
-        Recently, Nate expressed protective devotion and Ana Patricia responded with deep affection. Nate ensured contraception. Ana Patricia suggested fetching water together. Nate styled Ana Patricia’s hair into a ponytail. Ana Patricia promised to work diligently and appeared happier and more secure under Nate’s care.
-        \""\""\""
-        ### END OF EXAMPLE
-
-        ### RULES (NON-NEGOTIABLE; DO NOT DEVIATE; MANDATORY)
-        1. Write in third person, centered on {characterName}.
-        2. Update ONLY if new memories add new facts or contradictions; otherwise return the previous summary verbatim.
-        3. 5–10 paragraphs; each paragraph contains factual statements about the character’s experiences and memories.
-        4. Output MUST contain ONLY the summary (no extra text).
-        5. Write for easy recall by an AI Assistant.
-        6. The memory is chronological; respect that order.
-        7. First chapter: quick recall of how {characterName} was first introduced to the story and how {characterName} met {playerName}. 
-        8. Last chapter: longest; you may write as current events with as much detail as needed (only for the last chapter).
-        9. NEVER use pronouns; always use names.
-        10. Each sentence states a single isolated fact within its chapter.
-
-        ## INPUTS:
-        [PREVIOUS SUMMARY WILL BE HERE]
-        [NEW MEMORIES WILL BE HERE]
+        Process memories below:
         """;
-
     }
 }

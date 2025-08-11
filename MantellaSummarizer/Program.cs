@@ -1,12 +1,20 @@
-﻿// See https://aka.ms/new-console-template for more information
-
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Linq;
 using MantellaSummarizer;
 using Newtonsoft.Json;
+using System.Text.RegularExpressions;
+
+class LastUpdateInfo
+{
+    [JsonProperty("lastUpdated")]
+    public DateTime LastUpdated { get; set; }
+
+    [JsonProperty("summaryFileSize")]
+    public long SummaryFileSize { get; set; }
+}
 
 class Program
 {
@@ -147,37 +155,45 @@ class Program
     /// <private>string currentCharacter</private>
     private static async Task ShowMenuAndProcess(DeepSeekClient client, string currentCharacter)
     {
+        var config = await LoadConfigurationAsync(); // Reload config in case it was changed
+
         while (true)
         {
             Console.Clear();
             Console.WriteLine("| Mantella Summarizer |");
             Console.WriteLine("========================");
-            Console.WriteLine($"Player: {_playerName} | Character Folder: {currentCharacter}");
+            Console.WriteLine($"Player: {config.PlayerName} | Character Folder: {config.CurrentCharacter}");
             Console.WriteLine();
             Console.WriteLine("Choose an option:");
-            Console.WriteLine($"1. [ENTER] Update only characters exceeding {_maxTokens} tokens");
+            Console.WriteLine("1. [ENTER] Update only characters with changed conversations");
             Console.WriteLine("2. Update all characters");
-            Console.WriteLine("3. Exit program");
+            Console.WriteLine("3. Change Character");
+            Console.WriteLine("4. Exit program");
             Console.WriteLine();
-            Console.Write("Your choice (1-3, or press ENTER for option 1): ");
+            Console.Write("Your choice (1-4, or press ENTER for option 1): ");
 
             var input = Console.ReadLine();
             
             if (string.IsNullOrEmpty(input) || input == "1")
             {
-                Console.WriteLine($"\n🔍 Processing characters exceeding {_maxTokens} tokens only...");
-                await HandleFolders(client, ProcessingMode.TokenLimitOnly, currentCharacter);
+                Console.WriteLine($"\n🔍 Processing characters with changed conversations...");
+                await HandleFolders(client, ProcessingMode.ChangedOnly, config.CurrentCharacter);
                 Console.WriteLine("\nPress any key to return to menu...");
                 Console.ReadKey();
             }
             else if (input == "2")
             {
                 Console.WriteLine("\n🔄 Processing all characters...");
-                await HandleFolders(client, ProcessingMode.AllCharacters, currentCharacter);
+                await HandleFolders(client, ProcessingMode.AllCharacters, config.CurrentCharacter);
                 Console.WriteLine("\nPress any key to return to menu...");
                 Console.ReadKey();
             }
             else if (input == "3")
+            {
+                await ChangeCharacterAsync(config);
+                config = await LoadConfigurationAsync(); // Reload config to reflect changes
+            }
+            else if (input == "4")
             {
                 Console.WriteLine("\n👋 Goodbye!");
                 return;
@@ -190,12 +206,88 @@ class Program
         }
     }
 
+    private static async Task ChangeCharacterAsync(AppConfiguration config)
+    {
+        var conversationsPath = Path.Combine(Directory.GetCurrentDirectory(), "conversations");
+        if (!Directory.Exists(conversationsPath))
+        {
+            Console.WriteLine($"\n❌ The conversations directory was not found at: {conversationsPath}");
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+            return;
+        }
+
+        var characterFolders = Directory.GetDirectories(conversationsPath)
+                                        .Select(Path.GetFileName)
+                                        .ToList();
+
+        if (characterFolders.Count == 0)
+        {
+            Console.WriteLine("\nℹ️ No character folders found in the conversations directory.");
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+            return;
+        }
+
+        Console.WriteLine("\nPlease select a character:");
+        for (int i = 0; i < characterFolders.Count; i++)
+        {
+            Console.WriteLine($"{i + 1}. {characterFolders[i]}");
+        }
+
+        Console.Write("\nEnter the number of the character: ");
+        if (int.TryParse(Console.ReadLine(), out int selection) && selection > 0 && selection <= characterFolders.Count)
+        {
+            var selectedFolder = characterFolders[selection - 1];
+            config.CurrentCharacter = selectedFolder;
+
+            if (selectedFolder.Equals("default", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Write("Enter the player name: ");
+                config.PlayerName = Console.ReadLine();
+            }
+            else
+            {
+                // Remove trailing digits to suggest a clean name (e.g., "Arya1" -> "Arya")
+                var suggestedName = Regex.Replace(selectedFolder, @"\d+$", "");
+
+                Console.Write($"Is the player name also '{suggestedName}'? (Y/n): ");
+                var response = Console.ReadLine();
+                if (string.IsNullOrEmpty(response) || response.Equals("y", StringComparison.OrdinalIgnoreCase))
+                {
+                    config.PlayerName = suggestedName;
+                }
+                else
+                {
+                    Console.Write("Enter the player name: ");
+                    config.PlayerName = Console.ReadLine();
+                }
+            }
+
+            await SaveConfigurationAsync(config);
+            Console.WriteLine($"\n✅ Character changed to: {config.CurrentCharacter} | Player: {config.PlayerName}");
+        }
+        else
+        {
+            Console.WriteLine("\n❌ Invalid selection.");
+        }
+        Console.WriteLine("Press any key to continue...");
+        Console.ReadKey();
+    }
+
+    private static async Task SaveConfigurationAsync(AppConfiguration config)
+    {
+        var configPath = Path.Combine(Directory.GetCurrentDirectory(), "config.json");
+        var jsonContent = JsonConvert.SerializeObject(config, Formatting.Indented);
+        await File.WriteAllTextAsync(configPath, jsonContent);
+    }
+
     /// <summary>
     /// Processing mode enumeration
     /// </summary>
     private enum ProcessingMode
     {
-        TokenLimitOnly,
+        ChangedOnly,
         AllCharacters
     }
 
@@ -306,15 +398,26 @@ class Program
         try
         {
             var lastUpdatedFile = Path.Combine(Path.GetDirectoryName(summaryFile), "lastUpdated.json");
-            var summaryLastWriteTime = File.GetLastWriteTimeUtc(summaryFile);
-            bool hasBeenUpdatedBefore = false;
+            var summaryFileInfo = new FileInfo(summaryFile);
+            long currentSummarySize = summaryFileInfo.Length;
+            long lastSummarySize = -1;
 
             if (File.Exists(lastUpdatedFile))
             {
-                var lastUpdatedTime = File.GetLastWriteTimeUtc(lastUpdatedFile);
-                if (lastUpdatedTime >= summaryLastWriteTime)
+                try
                 {
-                    hasBeenUpdatedBefore = true;
+                    var lastUpdateJson = await File.ReadAllTextAsync(lastUpdatedFile);
+                    var lastUpdateInfo = JsonConvert.DeserializeObject<LastUpdateInfo>(lastUpdateJson);
+                    if (lastUpdateInfo != null)
+                    {
+                        lastSummarySize = lastUpdateInfo.SummaryFileSize;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Handle case where lastUpdated.json is malformed or from an old version
+                    Console.WriteLine($"   ⚠️  Could not parse 'lastUpdated.json' for {cleanNpcName}. Assuming it needs an update.");
+                    lastSummarySize = -1; // Force update
                 }
             }
 
@@ -328,17 +431,22 @@ class Program
 
             var tokenCount = client.GetTokenCount(content);
 
-            // Core logic based on your requirements:
-            bool needsResummarize = (mode == ProcessingMode.AllCharacters) || (tokenCount >= _maxTokens);
-            bool needsOverrideUpdate = (mode == ProcessingMode.AllCharacters) || !hasBeenUpdatedBefore;
+            // Core logic based on file size and processing mode:
+            bool needsUpdate = (mode == ProcessingMode.AllCharacters) || (currentSummarySize != lastSummarySize);
 
-            if (needsResummarize)
+            if (!needsUpdate)
             {
-                Console.WriteLine($"🔄 Summary for {cleanNpcName} needs updating. Re-summarizing...");
-                
-                // Backup the old summary before overwriting
-                await BackupSummaryFile(summaryFile);
+                Console.WriteLine($"✅ SKIPPING: {cleanNpcName} - no changes detected.");
+                return true;
+            }
 
+            // From here, we know an update is needed.
+            // First, check if the summary needs to be condensed due to token limits.
+            if (tokenCount >= _maxTokens)
+            {
+                Console.WriteLine($"🔄 Summary for {cleanNpcName} is too large ({tokenCount}/{_maxTokens}). Re-summarizing...");
+                
+                await BackupSummaryFile(summaryFile);
                 var newSummary = await client.GetNewSummary(cleanNpcName, _playerName, content);
 
                 if (!string.IsNullOrEmpty(newSummary))
@@ -347,7 +455,6 @@ class Program
                     content = newSummary; // Use the new summary for the override update
                     tokenCount = client.GetTokenCount(content); // Recalculate token count
                     Console.WriteLine($"   ✅ Re-summarized {Path.GetFileName(summaryFile)}");
-                    needsOverrideUpdate = true; // Always update override after re-summarizing
                 }
                 else
                 {
@@ -356,18 +463,14 @@ class Program
                 }
             }
 
-            if (needsOverrideUpdate)
-            {
-                var npcFolderName = Path.GetFileName(Path.GetDirectoryName(summaryFile));
-                var characterOverridesDir = Path.Combine(Directory.GetCurrentDirectory(), "character_overrides");
-                var overrideFile = Path.Combine(characterOverridesDir, $"{cleanNpcName}.json");
-                return await UpdateCharacterOverride(client, content, cleanNpcName, npcFolderName, overrideFile, tokenCount);
-            }
-            else
-            {
-                Console.WriteLine($"✅ SKIPPING: {cleanNpcName} ({tokenCount}/{_maxTokens} tokens) - already up-to-date.");
-                return true;
-            }
+            // Finally, update the character override file.
+            var npcFolderName = Path.GetFileName(Path.GetDirectoryName(summaryFile));
+            var characterOverridesDir = Path.Combine(Directory.GetCurrentDirectory(), "character_overrides");
+            var overrideFile = Path.Combine(characterOverridesDir, $"{cleanNpcName}.json");
+            // Get the final size of the summary file before updating the override
+            long finalSummarySize = new FileInfo(summaryFile).Length;
+            var npcDirectoryPath = Path.GetDirectoryName(summaryFile);
+            return await UpdateCharacterOverride(client, content, cleanNpcName, npcDirectoryPath, overrideFile, tokenCount, finalSummarySize);
         }
         catch (Exception ex)
         {
@@ -430,11 +533,11 @@ class Program
     /// <param name="client">DeepSeek API client</param>
     /// <param name="content">The summary content to process</param>
     /// <param name="cleanNpcName">Clean NPC name</param>
-    /// <param name="npcFolderName">The original folder name of the NPC</param>
+    /// <param name="npcDirectoryPath">The path to the original NPC conversation directory</param>
     /// <param name="overrideFile">The path to the character override file</param>
     /// <param name="tokenCount">Token count</param>
     /// <returns>True if processed successfully, false otherwise</returns>
-    private static async Task<bool> UpdateCharacterOverride(DeepSeekClient client, string content, string cleanNpcName, string npcFolderName, string overrideFile, int tokenCount)
+    private static async Task<bool> UpdateCharacterOverride(DeepSeekClient client, string content, string cleanNpcName, string npcDirectoryPath, string overrideFile, int tokenCount, long summaryFileSize)
     {
         try
         {
@@ -447,21 +550,14 @@ class Program
                 Directory.CreateDirectory(Path.GetDirectoryName(overrideFile));
                 await File.WriteAllTextAsync(overrideFile, summary);
 
-                // Get the base conversations directory for the current character
-                var baseConversationsDir = Path.Combine(Directory.GetCurrentDirectory(), "conversations", _playerName);
-                if (_playerName != "default" && !Directory.Exists(baseConversationsDir))
+                // The correct path for lastUpdated.json is inside the original NPC directory.
+                var lastUpdatedFile = Path.Combine(npcDirectoryPath, "lastUpdated.json");
+                var updateInfo = new LastUpdateInfo
                 {
-                    // Fallback for Fallout 4 where the playername is not the folder name in conversations
-                    baseConversationsDir = Path.Combine(Directory.GetCurrentDirectory(), "conversations", "default");
-                }
-
-                // Use the original npcFolderName to create the correct path
-                var npcConversationDir = Path.Combine(baseConversationsDir, npcFolderName);
-                Directory.CreateDirectory(npcConversationDir); // Ensure directory exists
-
-                var lastUpdatedFile = Path.Combine(npcConversationDir, "lastUpdated.json");
-
-                await File.WriteAllTextAsync(lastUpdatedFile, $"{{\"lastUpdated\": \"{DateTime.UtcNow:O}\"}}");
+                    LastUpdated = DateTime.UtcNow,
+                    SummaryFileSize = summaryFileSize
+                };
+                await File.WriteAllTextAsync(lastUpdatedFile, JsonConvert.SerializeObject(updateInfo, Formatting.Indented));
 
 
                 Console.WriteLine("✅ override updated!");
