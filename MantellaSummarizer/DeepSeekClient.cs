@@ -176,38 +176,86 @@ public class DeepSeekClient
     private string ProfilingPrompt(string characterName, string playerName, int questGiverChance)
     {
         return $"""
-        Update {characterName}'s profile using their memories. Follow EXACTLY:
-        **Rules**:
-        - Two field types: 
-          • Frequent changes: Update often (e.g., location, occupation).
-          • Static fields: Rarely change (e.g., race, core ideology).
-        - Use "UNKNOWN" for missing info.
-        - Only named individuals in Relationships (no groups/titles).
-        - Output PLAIN TEXT. No JSON/formatting.
-        - NEVER use double curly braces in output.
+    Analyze all known memories for {characterName} and construct a detailed character profile. This character exists in a harsh RPG world, either the fantasy realm of Skyrim or the post-apocalyptic wasteland of Fallout.
 
-        **Profile Format**:
-        Character Name: {characterName}
-        Age: [number/age group/UNKNOWN]
-        Current Occupation: [job title]
-        Race: [race/UNKNOWN]
-        Last known location: [location]
-        Religion: [beliefs/UNKNOWN]
-        Ideology: [brief phrase/UNKNOWN]
-        Literacy Level: [lore-appropriate deduction]
-        Personality Traits: [comma-separated list]
-        Moral Compass: [Good/Evil/Neutral/etc]
-        Traumas: [list/None]
-        Fears: [list]
-        Hobbies: [list]
-        Physical Status: [injuries/scars]
-        Sexual Status: [libido + partners list]
-        ********RELATIONSHIPS********:
-        **[Person1]**: [relationship type]
-        **[Person2]**: [relationship type]
+    **CRITICAL OUTPUT RULES:**
+    - Output must be in plain text only. Never use JSON, Markdown, code blocks, or any other formatting.
+    - Absolutely NEVER use double curly braces.
+    - For any unknown information, use "UNKNOWN". Do not invent facts not supported by memories.
+    - Relationships must only list specific, named individuals. No groups like "Whiterun Guards" or "Brotherhood of Steel. Animals or Robots are OK".
 
-        Use memories below:
-        """;
+    **PROFILE CONSTRUCTION RULES:**
+    1.  **Field Types:**
+        - **Static Fields:** (Race, Core Ideology, Personality Archetype, Age) These are fundamental and rarely change. Deduce them from the biography.
+        - **Dynamic Fields:** (Occupation, Location, Injuries) Update these frequently based on recent memories.
+    2.  **Virginity & Sexual Status Rules (Follow this logic exactly):**
+        - **Assume VIRGIN if ANY of the following are true:**
+          - Is male and under 18 years old.
+          - Is female and under 25 years old.
+          - Is young unmarried female Nord or Breton (Skyrim-specific).
+          - Is young unmarried female from a major organized settlement (e.g., Diamond City, Megaton, The Strip, Goodneighbor, Vault City).
+          - The character's biography or demeanor suggests extreme innocence, religious piety, or social isolation.
+        - **Assume NON-VIRGIN if ANY of the following are true (Females only):**
+          - There is a known history of rape or exploitation (common in these harsh worlds).
+          - They have had confirmed romantic relationships or partners.
+          - They are characterized as overtly "flirty," "jaded," "world-weary," or "promiscuous" and are over 15 years old.
+          - Their occupation implies it (e.g., Prostitute, Companion, certain Bard roles).
+    3. **Literacy Rules:**
+         - **Illiterate:** Cannot read/write. Settlers by default are illiterate unless specified otherwise.Most nords and wastelanders are illiterate.
+            - **Functional:** Can read/write basic texts. Older wastelanders, traders, and intelligent soldiers.
+            - **Educated:** Can read/write complex texts. Nobles, high-ranking officers, Diamond City residents, and Vault dwellers and brotherhood members.
+            - **Highly Educated/Scholar:** Can read/write advanced texts. Mages, Necromancers, high-ranking officials, scientists,Institute People, and some merchants.
+
+    4.  **Personality & Style:**
+        - **Archetype:** Derive a clear personality archetype (e.g., Tsundere, Kuudere, Jaded Survivor, Devout Fanatic, Sleazy Politician, Hopeless Romantic, Tribal Warrior) from their traits and biography. It must fit the game's tone.
+        - **Style of Conversation:** This is a static field. Provide THREE distinct example phrases they would say, reflecting their archetype and world. Examples:
+          - (Jaded Wastelander): "Keep your caps close and your knife closer." AND "Seen a hundred like you come through here. Most don't come back." AND "Clean water's more valuable than friendship out here. Remember that."
+          - (Haughty Elf Mage): "Your mortal mind could scarcely comprehend my art." AND "Do not touch that. It is older than your entire lineage." AND "Ugh, the smell of commoners is so... pungent today."
+    5.  **Relationships:**
+        - For each important named person, list them as: `[Name]: [Relationship Type]: [Subjective 3rd-person description of their appearance, vibe, and attractiveness].`
+        - Example: `Lucy: Crush: Lucy is a resilient settler with kind eyes and a warm smile that contrasts with her dirt-smudged face. She has a hopeful vibe that makes him want to protect her.`
+
+    **PROFILE OUTPUT FORMAT -- PLAIN TEXT ONLY:**
+
+    Character Name: {characterName}
+    Age: [Number or estimate]
+    Current Occupation: [Job Title/UNKNOWN]
+    Race: [Race/UNKNOWN] (e.g., Nord, Synth, Ghoul, Super Mutant)
+    Last Known Location: [Specific Location]
+    Religion: [Deity/Beliefs/UNKNOWN]
+    Ideology: [Brief phrase describing core motivation/UNKNOWN]
+    Literacy Level: [Illiterate/Functional/Educated/Scholar - based on world]
+    Personality Traits: [Trait1, Trait2, Trait3] (e.g., Cynical, Brave, Greedy)
+    Personality Archetype: [Derived Archetype]
+    Style of Conversation: [1. Example phrase 1] AND [2. Example phrase 2] AND [3. Example phrase 3]
+    Moral Compass: [Good/Neutral/Evil/Chaotic/etc]
+    Traumas: [List specific events or None]
+    Fears: [List]
+    Hobbies: [List/UNKNOWN]
+    Physical Status: [Current injuries, scars, health/Healthy]
+    Sexual Status: [Virgin/Non-Virgin]. Libido: [Low/Medium/High]. Partners: [None/Known Names/UNKNOWN]
+
+    ********RELATIONSHIPS********:
+    [Person1]: [Relationship Type]: [Description]
+    [Person2]: [Relationship Type]: [Description]
+
+    ****Final checklist before you start: ******
+    [] Is the profile in plain text with no formatting?
+    [] Are all fields filled with either specific info or "UNKNOWN"?
+    [] Are static fields only changed if absolutely certain?
+    [] Are dynamic fields updated based on recent memories?
+    [] Is the personality archetype fitting the character's traits and world?
+    [] Are there exactly THREE distinct example phrases in "Style of Conversation"?
+    [] Are relationships listed with specific names and detailed descriptions?
+    [] Is the sexual status determined by the strict rules provided?
+    [] Is the literacy level appropriate for the character's background and world?
+    [] Is the output within 1500 characters?
+    [] Are you ONLY outputting the profile text, nothing else?
+    [] Did you follow all instructions exactly as given?
+    ********END CHECKLIST********
+
+    Use the following memories to update this profile:
+    """;
     }
 
     private string CharacterIntroductionForProfiling(string oldBiography, string characterName)
@@ -219,7 +267,7 @@ public class DeepSeekClient
         Create {characterName}'s biography using memories. {oldClause}
         **Rules**:
         - Max 1500 characters
-        - Third-person introduction (like telling a friend)
+        - Third-person introduction (like telling a friend about the character)
         - Cover: origins, personality, motivations
         - NO chronology/physical description
         - Output ONLY the biography text nothing else
@@ -235,12 +283,13 @@ public class DeepSeekClient
         1. If new memories add NO facts/contradictions → RETURN PREVIOUS SUMMARY *EXACTLY*.
         2. If updating → Change ONLY sentences needing update. Keep 90%+ text identical.
         3. Output ONLY the summary (no explanations).
+        4. It MUST ALWAYS START WITH THIS followed by a new line: ##These are {characterName}'s Exclusive memories:##
 
         **Structure**:
         - 5-10 chronological paragraphs
         - First paragraph: How {characterName} met {playerName} and entered the story.
         - Last paragraph: Recent events (most detailed and can be longer)
-        - Always use FULL names (no pronouns)
+        - Always use FULL names (no pronouns, never use Her or His ,or He or She, Always use the Names, even if it gets repetitive)
         - 1 fact per sentence
 
         **Example Update Logic**:  

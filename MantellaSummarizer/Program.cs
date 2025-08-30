@@ -442,8 +442,7 @@ class Program
 
             // From here, we know an update is needed.
             // First, check if the summary needs to be condensed due to token limits.
-            if (tokenCount >= _maxTokens)
-            {
+
                 Console.WriteLine($"🔄 Summary for {cleanNpcName} is too large ({tokenCount}/{_maxTokens}). Re-summarizing...");
                 
                 await BackupSummaryFile(summaryFile);
@@ -461,7 +460,7 @@ class Program
                     Console.WriteLine($"   ❌ Failed to re-summarize {cleanNpcName}, skipping override update for this character.");
                     return false; // Don't proceed if re-summarization failed
                 }
-            }
+         
 
             // Finally, update the character override file.
             var npcFolderName = Path.GetFileName(Path.GetDirectoryName(summaryFile));
